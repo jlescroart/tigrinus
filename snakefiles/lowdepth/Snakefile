@@ -53,12 +53,9 @@ rule all:
     input:
 #        expand("{dir}/{{chr}}.vcf.gz".format(dir = config["output"]["vcf"]), chr = unique_chr),
         "{dir}/oncifelis_unmasked.html".format(dir = config["output"]["vcf"]),
-#        "{dir}/leopardus_autosomal.html".format(dir = config["output"]["vcf"]),
-#        "{dir}/leopardus_repeatmasked.html".format(dir = config["output"]["vcf"]),
         "{dir}/FastME/oncifelis_genomewide_nj.nwk".format(dir = config["output"]["vcf"]),
-        expand("{dir}/FastME/bootstraps/bs_{{bs}}.nwk".format(dir = config["output"]["vcf"]), bs = bs_list),
+        "{dir}/FastME/bootstraps.nwk".format(dir = config["output"]["vcf"]),
         "{dir}/FastME/oncifelis_genomewide_nj_bs.nwk".format(dir = config["output"]["vcf"])
-#        "{dir}/plink2/oncifelis_pca.svg".format(dir = config["output"]["vcf"])
 
 rule ref_gunzip:
     input:
@@ -231,6 +228,7 @@ use rule variantqc as variantqc_autosomal with:
     output:
         html = "{dir}/oncifelis_autosomal.html".format(dir = config["output"]["vcf"])
 
+
 ###NJ
 rule vcf2dis:
     input:
@@ -276,7 +274,6 @@ rule cat:
         dir = "{dir}/VCF2Dis/bootstraps".format(dir = config["output"]["vcf"])
     shell:
         "cat {params.dir}/*.mat > {output.mat}"
-
 
 rule fastme_bs:
     input:
