@@ -29,6 +29,7 @@ bin:
     variantqc: /media/labgenoma4/DATAPART4/jonasl/bin/DISCVRSeq/DISCVRSeq-1.3.9.jar
     vcf2dis: /media/labgenoma4/DATAPART4/jonasl/bin/VCF2Dis/bin/VCF2Dis
     fastme: /media/labgenoma4/DATAPART4/jonasl/bin/FastME/binaries/fastme-2.1.6.2-linux64
+    vcf2phylip: /media/labgenoma4/DATAPART4/jonasl/bin/vcf2phylip/vcf2phylip.py
 
 scripts:
     plot_plink_pca: /media/labgenoma4/DATAPART4/jonasl/scripts/plot_plink_pca.py
