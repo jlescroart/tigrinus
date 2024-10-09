@@ -10,6 +10,8 @@
 import pandas as pd
 import re
 from pathlib import Path
+import pysam
+import gzip
 
 ### Configuration
 configfile: "config_Oge1.yaml"
@@ -22,6 +24,27 @@ def strip_ext(file_str):
     if re.match("fasta|fa|fna", bits[-1]): 
         bits = bits[:-1] 
     return ".".join(bits) 
+
+def is_transversion(ref, alt):
+    transitions = {('A', 'G'), ('G', 'A'), ('C', 'T'), ('T', 'C')}
+    return (ref, alt) not in transitions and (alt, ref) not in transitions
+
+def filter_vcf(input_vcf, output_vcf):
+    with gzip.open(input_vcf, 'rt') as f_in:
+        vcf_in = pysam.VariantFile(f_in, 'r')
+        vcf_out = pysam.VariantFile(output_vcf, 'w', header=vcf_in.header)
+
+        for record in vcf_in:
+            ref = record.ref
+            alts = record.alts
+            if alts:
+                for alt in alts:
+                    if is_transversion(ref, alt):
+                        vcf_out.write(record)
+                        break  # Stop after writing the record once for any valid alt
+
+        vcf_in.close()
+        vcf_out.close()
 
 ### Variables
 metadata = pd.read_csv(config["metadata"], sep = "\t", engine = "python", encoding="latin-1").set_index("unique_id", drop = False)
@@ -51,10 +74,14 @@ bs_list = list(range(1,int(config["bootstraps"])+1))
 ### Rules
 rule all:
     input:
-#        expand("{dir}/{{chr}}.vcf.gz".format(dir = config["output"]["vcf"]), chr = unique_chr),
-        "{dir}/oncifelis_unmasked.html".format(dir = config["output"]["vcf"]),
+#        expand("{dir}/{{chr}}.vcf.gz".format(dir = config["output"]["vcf"]), chr = unique_chr)
+        "{dir}/oncifelis.html".format(dir = config["output"]["vcf"]),
+        "{dir}/oncifelis_Tv.html".format(dir = config["output"]["vcf"]),
+        "{dir}/oncifelis_autosomal.html".format(dir = config["output"]["vcf"]),
+        "{dir}/oncifelis_autosomal_Tv.html".format(dir = config["output"]["vcf"]),
         "{dir}/FastME/oncifelis_genomewide_nj_bs.nwk".format(dir = config["output"]["vcf"]),
-        "{dir}/RAxML/oncifelis_genomewide_ml_bs.nwk".format(dir = config["output"]["vcf"])
+        "{dir}/FastME/oncifelis_Tv_genomewide_nj_bs.nwk".format(dir = config["output"]["vcf"])
+#        "{dir}/RAxML/oncifelis_genomewide_ml_bs.nwk".format(dir = config["output"]["vcf"])
 
 rule ref_gunzip:
     input:
@@ -146,41 +173,68 @@ rule bcftools_concat:
         fai = "{dir}/reheader.fai".format(dir = config["output"]["vcf"]),
         tsv = "{dir}/unique_id2figure_id.tsv".format(dir = config["output"]["vcf"])
     output:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
         tmp = temp("{dir}/temp.vcf.gz".format(dir = config["output"]["vcf"]))
     threads: 6
     shell:
         "bcftools concat --threads {threads} -Oz {input.vcf} | bcftools reheader -s {input.tsv} -o {output.tmp} && bcftools reheader --fai {input.fai} -o {output.vcf} {output.tmp}"
 
-use rule indexfeaturefile as indexfeaturefile_unmasked with:
+use rule indexfeaturefile as indexfeaturefile_oncifelis with:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"])
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"])
     output:
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"])
 
-rule bcftools_mask:
+rule variantqc:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
-        bed = strip_ext(config["ref"]["repeatmasker_out"]) + ".bed"
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
+        ref_fna = "{ref}.fasta".format(ref = strip_ext(config["ref"]["file"])),
+        dict = "{ref}.dict".format(ref = strip_ext(config["ref"]["file"]))
     output:
-        vcf = "{dir}/oncifelis_repeatmasked.vcf.gz".format(dir = config["output"]["vcf"])
-    threads: 6
+        html = "{dir}/oncifelis.html".format(dir = config["output"]["vcf"])
+    threads: 4
+    params:
+        jar = config["bin"]["variantqc"]
     shell:
-        "bcftools filter --threads {threads} -T ^{input.bed} -Oz -o {output.vcf} {input.vcf}"
-# Should be using bcftools filter --mask-file {input.bed} --soft-filter MASK -m +
-# But I'm stuck with bcftools <v1.15 in conda for now
+        "java -jar {params.jar} VariantQC --threads {threads} -R {input.ref_fna} -V {input.vcf} -O {output.html}"
 
-use rule indexfeaturefile as indexfeaturefile_masked with:
+rule keep_transversions:
     input:
-        vcf = "{dir}/oncifelis_repeatmasked.vcf.gz".format(dir = config["output"]["vcf"])
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"])
     output:
-        tbi = "{dir}/oncifelis_repeatmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+        vcf = "{dir}/oncifelis_Tv.vcf".format(dir = config["output"]["vcf"])
+    run:
+        filter_vcf(input.vcf, output.vcf)
 
+rule bgzip:
+    input:
+        vcf = "{dir}/oncifelis_Tv.vcf".format(dir = config["output"]["vcf"])
+    output:
+        vcf = "{dir}/oncifelis_Tv.vcf.gz".format(dir = config["output"]["vcf"])
+    shell:
+        "bgzip {input.vcf}"
+
+use rule indexfeaturefile as indexfeaturefile_Tv with:
+    input:
+        vcf = "{dir}/oncifelis_Tv.vcf.gz".format(dir = config["output"]["vcf"])
+    output:
+        tbi = "{dir}/oncifelis_Tv.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+
+use rule variantqc as variantqc_Tv with:
+    input:
+        vcf = "{dir}/oncifelis_Tv.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis_Tv.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
+        ref_fna = "{ref}.fna".format(ref = strip_ext(config["ref"]["file"])),
+        dict = "{ref}.dict".format(ref = strip_ext(config["ref"]["file"]))
+    output:
+        html = "{dir}/oncifelis_Tv.html".format(dir = config["output"]["vcf"])
+
+###Autosomal
 rule bcftools_autosomal:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"])
     output:
         vcf = "{dir}/oncifelis_autosomal.vcf.gz".format(dir = config["output"]["vcf"])
     threads: 6
@@ -195,29 +249,6 @@ use rule indexfeaturefile as indexfeaturefile_autosomal with:
     output:
         tbi = "{dir}/oncifelis_autosomal.vcf.gz.tbi".format(dir = config["output"]["vcf"])
 
-rule variantqc:
-    input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
-        ref_fna = "{ref}.fasta".format(ref = strip_ext(config["ref"]["file"])),
-        dict = "{ref}.dict".format(ref = strip_ext(config["ref"]["file"]))
-    output:
-        html = "{dir}/oncifelis_unmasked.html".format(dir = config["output"]["vcf"])
-    threads: 4
-    params:
-        jar = config["bin"]["variantqc"]
-    shell:
-        "java -jar {params.jar} VariantQC --threads {threads} -R {input.ref_fna} -V {input.vcf} -O {output.html}"
-
-use rule variantqc as variantqc_masked with:
-    input:
-        vcf = "{dir}/oncifelis_repeatmasked.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis_repeatmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
-        ref_fna = "{ref}.fna".format(ref = strip_ext(config["ref"]["file"])),
-        dict = "{ref}.dict".format(ref = strip_ext(config["ref"]["file"]))
-    output:
-        html = "{dir}/oncifelis_repeatmasked.html".format(dir = config["output"]["vcf"])
-
 use rule variantqc as variantqc_autosomal with:
     input:
         vcf = "{dir}/oncifelis_autosomal.vcf.gz".format(dir = config["output"]["vcf"]),
@@ -227,16 +258,43 @@ use rule variantqc as variantqc_autosomal with:
     output:
         html = "{dir}/oncifelis_autosomal.html".format(dir = config["output"]["vcf"])
 
+use rule keep_transversions as keep_transversions_autosomal with:
+    input:
+        vcf = "{dir}/oncifelis_autosomal.vcf.gz".format(dir = config["output"]["vcf"])
+    output:
+        vcf = "{dir}/oncifelis_autosomal_Tv.vcf".format(dir = config["output"]["vcf"])
+
+use rule bgzip as bgzip_autosomal_Tv with:
+    input:
+        vcf = "{dir}/oncifelis_autosomal_Tv.vcf".format(dir = config["output"]["vcf"])
+    output:
+        vcf = "{dir}/oncifelis_autosomal_Tv.vcf.gz".format(dir = config["output"]["vcf"])
+
+use rule indexfeaturefile as indexfeaturefile_autosomal_Tv with:
+    input:
+        vcf = "{dir}/oncifelis_autosomal_Tv.vcf.gz".format(dir = config["output"]["vcf"])
+    output:
+        tbi = "{dir}/oncifelis_autosomal_Tv.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+
+use rule variantqc as variantqc_autosomal_Tv with:
+    input:
+        vcf = "{dir}/oncifelis_autosomal_Tv.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis_autosomal_Tv.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
+        ref_fna = "{ref}.fna".format(ref = strip_ext(config["ref"]["file"])),
+        dict = "{ref}.dict".format(ref = strip_ext(config["ref"]["file"]))
+    output:
+        html = "{dir}/oncifelis_autosomal_Tv.html".format(dir = config["output"]["vcf"])
+
 
 ###NJ
 rule vcf2dis:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"])
     output:
         mat = temp("{dir}/VCF2Dis/oncifelis_genomewide_pdist.mat".format(dir = config["output"]["vcf"])),
-        txt = temp("{dir}/VCF2Dis/stdout.txt".format(dir = config["output"]["vcf"])),
-        info = temp("{dir}/VCF2Dis/oncifelis_genomewide_pdist.mat_fastme_stat.txt".format(dir = config["output"]["vcf"]))
+        txt = temp("{dir}/VCF2Dis/stdout.txt".format(dir = config["output"]["vcf"]))
+#        info = temp("{dir}/VCF2Dis/oncifelis_genomewide_pdist.mat_fastme_stat.txt".format(dir = config["output"]["vcf"]))
     params:
         vcf2dis = config["bin"]["vcf2dis"]
     shell:
@@ -244,11 +302,11 @@ rule vcf2dis:
 
 rule vcf2dis_bs:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"])
     output:
-        mat = temp("{dir}/VCF2Dis/bootstraps/bs_{{bs}}.mat".format(dir = config["output"]["vcf"])),
-        info = temp("{dir}/VCF2Dis/bootstraps/bs_{{bs}}.mat_fastme_stat.txt".format(dir = config["output"]["vcf"]))
+        mat = temp("{dir}/VCF2Dis/bootstraps/bs_{{bs}}.mat".format(dir = config["output"]["vcf"]))
+#        info = temp("{dir}/VCF2Dis/bootstraps/bs_{{bs}}.mat_fastme_stat.txt".format(dir = config["output"]["vcf"]))
     params:
         vcf2dis = config["bin"]["vcf2dis"]
     shell:
@@ -321,45 +379,101 @@ rule restore_id:
         with open(output.nwk, "w") as file:
             file.write(line)
 
+# Repeating rules nj section for transversion SNP set
+use rule vcf2dis as vcf2dis_Tv with:
+    input:
+        vcf = "{dir}/oncifelis_Tv.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis_Tv.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+    output:
+        mat = temp("{dir}/VCF2Dis/oncifelis_Tv_genomewide_pdist.mat".format(dir = config["output"]["vcf"])),
+        txt = temp("{dir}/VCF2Dis/stdout_Tv.txt".format(dir = config["output"]["vcf"]))
+
+use rule vcf2dis_bs as vcf2bis_bs_Tv with:
+    input:
+        vcf = "{dir}/oncifelis_Tv.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis_Tv.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+    output:
+        mat = temp("{dir}/VCF2Dis/bootstraps_Tv/bs_{{bs}}.mat".format(dir = config["output"]["vcf"]))
+
+use rule fastme as fastme_Tv with:
+    input:
+        mat = "{dir}/VCF2Dis/oncifelis_Tv_genomewide_pdist.mat".format(dir = config["output"]["vcf"])
+    output:
+        nwk = temp("{dir}/FastME/oncifelis_Tv_genomewide_nj.nwk".format(dir = config["output"]["vcf"]))
+
+use rule cat as cat_Tv with:
+    input:
+        mat = expand("{dir}/VCF2Dis/bootstraps_Tv/bs_{{bs}}.mat".format(dir = config["output"]["vcf"]), bs = bs_list)
+    output:
+        mat = temp("{dir}/VCF2Dis/bootstraps_Tv.mat".format(dir = config["output"]["vcf"]))
+    params:
+        dir = "{dir}/VCF2Dis/bootstraps_Tv".format(dir = config["output"]["vcf"])
+
+use rule fastme_bs as fastme_bs_Tv with:
+    input:
+        mat = "{dir}/VCF2Dis/bootstraps_Tv.mat".format(dir = config["output"]["vcf"])
+    output:
+        nwk = temp("{dir}/FastME/bootstraps_Tv.nwk".format(dir = config["output"]["vcf"]))
+
+use rule raxml_annotate as raxml_annotate_Tv with:
+    input:
+        nwk = "{dir}/FastME/oncifelis_Tv_genomewide_nj.nwk".format(dir = config["output"]["vcf"]),
+        bs = "{dir}/FastME/bootstraps_Tv.nwk".format(dir = config["output"]["vcf"])
+    output:
+        nwk = temp("{dir}/FastME/oncifelis_Tv_genomewide_nj_bs_truncid.nwk".format(dir = config["output"]["vcf"])),
+        info = temp("{dir}/FastME/RAxML_info.tmp".format(dir = config["output"]["vcf"])),
+        branch = temp("{dir}/FastME/RAxML_bipartitionsBranchLabels.tmp".format(dir = config["output"]["vcf"]))
+
+use rule restore_id as restore_id_Tv with:
+    input:
+        nwk = "{dir}/FastME/oncifelis_Tv_genomewide_nj_bs_truncid.nwk".format(dir = config["output"]["vcf"]),
+        txt = "{dir}/VCF2Dis/stdout_Tv.txt".format(dir = config["output"]["vcf"])
+    output:
+        nwk = "{dir}/FastME/oncifelis_Tv_genomewide_nj_bs.nwk".format(dir = config["output"]["vcf"])
+
+
 ###ML
 
 # Perhaps prune first for LD
 
+minimum = 34 #4 is default minimum value. Use len(unique_id) or len(unique_id)/2 for stricter filter
+
 rule vcf2fasta:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"])
     output:
-        fasta = "{dir}/oncifelis_unmasked.min{n}.fasta".format(dir = config["output"]["vcf"], n = len(unique_id))
+        fasta = "{dir}/oncifelis.min{n}.fasta".format(dir = config["output"]["vcf"], n = minimum),
+        log = "{dir}/oncifelis.min{n}.log".format(dir = config["output"]["vcf"], n = minimum)
     params:
         vcf2phylip = config["bin"]["vcf2phylip"],
         dir = config["output"]["vcf"],
-        n = 4 #default minimum value. Use len(unique_id) or len(unique_id)/2 for stricter filter 
+        n = minimum 
     shell:
-        "python {params.vcf2phylip} -fp --min-samples-locus {params.n} --input {input.vcf} --output-folder {params.dir}"
+        "python {params.vcf2phylip} -fp --min-samples-locus {params.n} --input {input.vcf} --output-folder {params.dir} > {output.log}"
 
 rule raxml:
     input:
-        fasta = "{dir}/oncifelis_unmasked.min{n}.fasta".format(dir = config["output"]["vcf"], n = len(unique_id))
+        fasta = "{dir}/oncifelis.min{n}.fasta".format(dir = config["output"]["vcf"], n = minimum)
     output:
         nwk = "{dir}/RAxML/oncifelis_genomewide_ml_bs.nwk".format(dir = config["output"]["vcf"]),
         info = "{dir}/RAxML/RAxML_info.tmp".format(dir = config["output"]["vcf"]),
         branch = temp("{dir}/RAxML/RAxML_bipartitionsBranchLabels.tmp".format(dir = config["output"]["vcf"])),
         bestTree = temp("{dir}/RAxML/RAxML_bestTree.tmp".format(dir = config["output"]["vcf"])),
         bootstrap = temp("{dir}/RAxML/RAxML_bootstrap.tmp".format(dir = config["output"]["vcf"]))
-    threads: 10
+    threads: 48
     params:
         nwk = "{dir}/RAxML/RAxML_bipartitions.tmp".format(dir = config["output"]["vcf"]),
         dir = config["output"]["vcf"] + "/RAxML"
     shell:
-        "raxmlHPC-PTHREADS -f a -m GTRGAMMA -T {threads} -p 8 -x 8 -s {input.fasta} -o Puma_concolor,Felis_chaus -# 1000 -w {params.dir} -n tmp && " +
+        "raxmlHPC-PTHREADS -f a -m GTRGAMMA -T {threads} -p 8 -x 8 -s {input.fasta} -o Puma_concolor,Felis_chaus -# 100 -w {params.dir} -n tmp && " +
         "mv {params.nwk} {output.nwk}"
 
 
 ###PCA
 rule keepfile:
     input:
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"])
     output:
         tsv = "{dir}/plink2/keep.tsv".format(dir = config["output"]["vcf"])
     params:
@@ -377,8 +491,8 @@ rule keepfile:
 
 rule plink2_indep:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis_unmasked.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
         tsv = "{dir}/plink2/keep.tsv".format(dir = config["output"]["vcf"])
     output:
         prune_in = temp("{dir}/plink2/oncifelis.prune.in".format(dir = config["output"]["vcf"])),
@@ -392,7 +506,7 @@ rule plink2_indep:
 
 rule plink2_afreq:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
         tsv = "{dir}/plink2/keep.tsv".format(dir = config["output"]["vcf"])
     output:
         afreq = temp("{dir}/plink2/oncifelis.afreq".format(dir = config["output"]["vcf"]))
@@ -404,7 +518,7 @@ rule plink2_afreq:
 
 rule plink2_pca:
     input:
-        vcf = "{dir}/oncifelis_unmasked.vcf.gz".format(dir = config["output"]["vcf"]),
+        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
         prune_in = "{dir}/plink2/oncifelis.prune.in".format(dir = config["output"]["vcf"]),
         afreq = "{dir}/plink2/oncifelis.afreq".format(dir = config["output"]["vcf"]),
         tsv = "{dir}/plink2/keep.tsv".format(dir = config["output"]["vcf"])

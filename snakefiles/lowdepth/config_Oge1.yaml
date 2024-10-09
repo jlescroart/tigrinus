@@ -3,7 +3,7 @@
 # BAM from external pipelines (mapache, generode...) as input
 # Load environment from within jonasl environment with $ conda activate bam2vcf
 
-metadata: /media/labgenoma4/DATAPART4/jonasl/data/tigrinus/generode/metadata/subs_dp1.8_metadata_2024JAN14.tsv
+metadata: /media/labgenoma4/DATAPART4/jonasl/data/tigrinus/generode/metadata/subs_dp1.8_metadata_2024FEB28.tsv
 exclude: []
 
 ref:

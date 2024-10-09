@@ -1,0 +1,16 @@
+name: lowdepth
+channels:
+  - defaults
+  - conda-forge
+  - bioconda
+  - etetoolkit
+  - dranew
+dependencies:
+  - snakemake
+  - bcftools
+  - raxml
+  - java-jdk
+  - bioconda::gatk4
+  - openjdk=8.0.152
+  - bioconda::pysam
+prefix: /apps/conda/jonasl/envs/lowdepth
