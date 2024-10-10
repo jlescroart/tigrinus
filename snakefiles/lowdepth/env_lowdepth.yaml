@@ -13,4 +13,6 @@ dependencies:
   - bioconda::gatk4
   - openjdk=8.0.152
   - bioconda::pysam
+  - bioconda::plink2
+  - conda-forge::matplotlib
 prefix: /apps/conda/jonasl/envs/lowdepth

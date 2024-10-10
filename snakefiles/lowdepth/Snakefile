@@ -80,8 +80,9 @@ rule all:
         "{dir}/oncifelis_autosomal.html".format(dir = config["output"]["vcf"]),
         "{dir}/oncifelis_autosomal_Tv.html".format(dir = config["output"]["vcf"]),
         "{dir}/FastME/oncifelis_genomewide_nj_bs.nwk".format(dir = config["output"]["vcf"]),
-        "{dir}/FastME/oncifelis_Tv_genomewide_nj_bs.nwk".format(dir = config["output"]["vcf"])
+        "{dir}/FastME/oncifelis_Tv_genomewide_nj_bs.nwk".format(dir = config["output"]["vcf"]),
 #        "{dir}/RAxML/oncifelis_genomewide_ml_bs.nwk".format(dir = config["output"]["vcf"])
+        "{dir}/plink2/oncifelis_autosomal_Tv_pca.svg".format(dir = config["output"]["vcf"])
 
 rule ref_gunzip:
     input:
@@ -473,7 +474,7 @@ rule raxml:
 ###PCA
 rule keepfile:
     input:
-        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"])
+        tbi = "{dir}/oncifelis_autosomal_Tv.vcf.gz.tbi".format(dir = config["output"]["vcf"])
     output:
         tsv = "{dir}/plink2/keep.tsv".format(dir = config["output"]["vcf"])
     params:
@@ -491,52 +492,52 @@ rule keepfile:
 
 rule plink2_indep:
     input:
-        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
-        tbi = "{dir}/oncifelis.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
+        vcf = "{dir}/oncifelis_autosomal_Tv.vcf.gz".format(dir = config["output"]["vcf"]),
+        tbi = "{dir}/oncifelis_autosomal_Tv.vcf.gz.tbi".format(dir = config["output"]["vcf"]),
         tsv = "{dir}/plink2/keep.tsv".format(dir = config["output"]["vcf"])
     output:
-        prune_in = temp("{dir}/plink2/oncifelis.prune.in".format(dir = config["output"]["vcf"])),
-        prune_out = temp("{dir}/plink2/oncifelis.prune.out".format(dir = config["output"]["vcf"])),
-        log = "{dir}/plink2/oncifelis.log".format(dir = config["output"]["vcf"])
+        prune_in = temp("{dir}/plink2/oncifelis_autosomal_Tv.prune.in".format(dir = config["output"]["vcf"])),
+        prune_out = temp("{dir}/plink2/oncifelis_autosomal_Tv.prune.out".format(dir = config["output"]["vcf"])),
+        log = "{dir}/plink2/oncifelis_autosomal_Tv.log".format(dir = config["output"]["vcf"])
     threads: 4
     params:
-        prefix = "{dir}/plink2/oncifelis".format(dir = config["output"]["vcf"])
+        prefix = "{dir}/plink2/oncifelis_autosomal_Tv".format(dir = config["output"]["vcf"])
     shell:
-        "plink2 --vcf {input.vcf} --threads {threads} --memory 16000 --double-id --allow-extra-chr --set-missing-var-ids @:# --keep {input.tsv} --maf 0.05 --indep-pairwise 50 10 0.1 --out {params.prefix}"
+        "plink2 --vcf {input.vcf} --threads {threads} --memory 16000 --double-id --allow-extra-chr --set-missing-var-ids @:# --keep {input.tsv} --bad-ld --maf 0.05 --indep-pairwise 50 10 0.1 --out {params.prefix}"
 
 rule plink2_afreq:
     input:
-        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
+        vcf = "{dir}/oncifelis_autosomal_Tv.vcf.gz".format(dir = config["output"]["vcf"]),
         tsv = "{dir}/plink2/keep.tsv".format(dir = config["output"]["vcf"])
     output:
-        afreq = temp("{dir}/plink2/oncifelis.afreq".format(dir = config["output"]["vcf"]))
+        afreq = temp("{dir}/plink2/oncifelis_autosomal_Tv.afreq".format(dir = config["output"]["vcf"]))
     threads: 4
     params:
-        prefix = "{dir}/plink2/oncifelis".format(dir = config["output"]["vcf"])
+        prefix = "{dir}/plink2/oncifelis_autosomal_Tv".format(dir = config["output"]["vcf"])
     shell:
         "plink2 --vcf {input.vcf} --threads {threads} --memory 16000 --double-id --allow-extra-chr --set-missing-var-ids @:# --keep {input.tsv} --freq --out {params.prefix}"
 
 rule plink2_pca:
     input:
-        vcf = "{dir}/oncifelis.vcf.gz".format(dir = config["output"]["vcf"]),
-        prune_in = "{dir}/plink2/oncifelis.prune.in".format(dir = config["output"]["vcf"]),
-        afreq = "{dir}/plink2/oncifelis.afreq".format(dir = config["output"]["vcf"]),
+        vcf = "{dir}/oncifelis_autosomal_Tv.vcf.gz".format(dir = config["output"]["vcf"]),
+        prune_in = "{dir}/plink2/oncifelis_autosomal_Tv.prune.in".format(dir = config["output"]["vcf"]),
+        afreq = "{dir}/plink2/oncifelis_autosomal_Tv.afreq".format(dir = config["output"]["vcf"]),
         tsv = "{dir}/plink2/keep.tsv".format(dir = config["output"]["vcf"])
     output:
-        eigenvec = "{dir}/plink2/oncifelis.eigenvec".format(dir = config["output"]["vcf"]),
-        eigenval = "{dir}/plink2/oncifelis.eigenval".format(dir = config["output"]["vcf"])
+        eigenvec = "{dir}/plink2/oncifelis_autosomal_Tv.eigenvec".format(dir = config["output"]["vcf"]),
+        eigenval = "{dir}/plink2/oncifelis_autosomal_Tv.eigenval".format(dir = config["output"]["vcf"])
     threads: 4
     params:
-        prefix = "{dir}/plink2/oncifelis".format(dir = config["output"]["vcf"])
+        prefix = "{dir}/plink2/oncifelis_autosomal_Tv".format(dir = config["output"]["vcf"])
     shell:
         "plink2 --vcf {input.vcf} --threads {threads} --memory 16000 --double-id --allow-extra-chr --set-missing-var-ids @:# --keep {input.tsv} --read-freq {input.afreq} --extract {input.prune_in} --pca --out {params.prefix}"
 
 rule plot_plink_pca:
     input:
-        eigenvec = "{dir}/plink2/oncifelis.eigenvec".format(dir = config["output"]["vcf"]),
-        eigenval = "{dir}/plink2/oncifelis.eigenval".format(dir = config["output"]["vcf"])
+        eigenvec = "{dir}/plink2/oncifelis_autosomal_Tv.eigenvec".format(dir = config["output"]["vcf"]),
+        eigenval = "{dir}/plink2/oncifelis_autosomal_Tv.eigenval".format(dir = config["output"]["vcf"])
     output:
-        svg = "{dir}/plink2/oncifelis_pca.svg".format(dir = config["output"]["vcf"])
+        svg = "{dir}/plink2/oncifelis_autosomal_Tv_pca.svg".format(dir = config["output"]["vcf"])
     params:
         script = config["scripts"]["plot_plink_pca"]
     shell:
